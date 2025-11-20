@@ -124,16 +124,24 @@ def parse_field(obj: Dict[str, Any], reg_width: int) -> Dict[str, Any]:
 
     whole = False
 
-    # -- { ..., "lsb": u32, ... } --
-    # (Required)
-    lsb = require_uint_32(obj.get("lsb", 0), f"field.lsb")
-    # -- { ..., "width": u32, ... } --
-    # (Required)
-    width = require_uint_32(obj.get("width", reg_width), f"field.width")
+    # -- { ..., "bit": u32, ... } --
+    # (Required, optional if lsb and width)
+    bit = obj.get("bit")
+    if bit is not None:
+        lsb = require_uint_32(bit, "field.bit")
+        width = 1
+    else:
+        # -- { ..., "lsb": u32, ... } --
+        # (Required, optional if bit)
+        lsb = require_uint_32(obj.get("lsb", 0), "field.lsb")
+        # -- { ..., "width": u32, ... } --
+        # (Required, optional if bit)
+        width = require_uint_32(obj.get("width", reg_width), "field.width")
+
     if width == 0:
-        raise ValueError(f"field.width must be > 0")
+        raise ValueError("field.width must be > 0")
     if lsb + width > reg_width:
-        raise ValueError(f"field exceeds register width")
+        raise ValueError("field exceeds register width")
 
     # Whole-register detection
     whole = (lsb == 0 and width == reg_width)
@@ -207,7 +215,7 @@ def parse_register(obj: Dict[str, Any]) -> Dict[str, Any]:
     policy = parse_policy(obj.get("policy"))
 
     # -- { ..., "fields": [ ... ] } --
-    # (Required, optional if immediate_bits)
+    # (Required, unused if immediate_bits)
     fields_node = obj.get("fields")
     if fields_node is None:
         fields_node = []

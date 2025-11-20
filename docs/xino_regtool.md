@@ -146,7 +146,7 @@ asm volatile("msr sctlr_el2, %0" :: "r"(tmp));
 
 - Controls barriers and immediate-only encodings; see [policy object](#policy-object).
 
-### *fields* (array, required)
+### *fields* (array, required, unused for immediate-only registers)
 
 - May be omitted or empty only if policy.immediate_bits is present and non-empty.
 - If present, must be an array of field objects; see [field object](#field-object).
@@ -242,8 +242,7 @@ If immediate_bits is non-empty, the register is treated as **immediate-only**:
   },
   {
     "name": "ee",
-    "lsb": 25,
-    "width": 1,
+    "bit": 25,
     "access": "rw",
     "enum_values": {
       "LITTLE_ENDIAN": 0,
@@ -252,13 +251,17 @@ If immediate_bits is non-empty, the register is treated as **immediate-only**:
   }
 ]
 ```
+### *bit* (u32, required, optional if *lsb* and *width* are present)
 
-### *lsb* (u32, required)
+- Bit index of a single-bit field (0-based).
+- If present, *lsb* and *width* are ignored.
+
+### *lsb* (u32, required, optional if *bit* is present)
 
 - Bit index of the least significant bit (0-based).
 - Default if omitted: 0.
 
-### *width* (u32, required)
+### *width* (u32, required, optional if *bit* is present)
 
 - Number of bits in the field.
 - Default if omitted: full register width (32 or 64).
