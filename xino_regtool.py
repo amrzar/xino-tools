@@ -287,7 +287,8 @@ class CodeWriter:
 
 # MODIFY BASE and emit_register(...) for different C++ code.
 # BASE is the base class for register feilds.
-# Register feild is an instance of field_base or inherited from it. 
+# Register feild is an instance of field_base or inherited from it.
+
 
 BASE = r"""
 template <typename T, unsigned LSB, unsigned WIDTH> class field_base {
@@ -295,25 +296,25 @@ template <typename T, unsigned LSB, unsigned WIDTH> class field_base {
 
 private:
   static constexpr T all_ones() { return ~T{0}; }
-
   static constexpr unsigned digits() noexcept {
     return std::numeric_limits<T>::digits;
   }
 
   static constexpr T mask_from_width(unsigned width) {
-    return (width == 0)        ? T{0}
-           : (width >= digits) ? all_ones()
-                               : static_cast<T>(all_ones() >> (digits - width));
+    return (width == 0) ? T{0}
+           : (width >= digits())
+               ? all_ones()
+               : static_cast<T>(all_ones() >> (digits() - width));
   }
 
 public:
-  static inline constexpr unsigned lsb = LSB;
-  static inline constexpr unsigned width = WIDTH;
-  static inline constexpr T mask_unshifted = mask_from_width(WIDTH);
-  static inline constexpr T mask = static_cast<T>(mask_unshifted << LSB);
+  static constexpr unsigned lsb = LSB;
+  static constexpr unsigned width = WIDTH;
+  static constexpr T mask_unshifted = mask_from_width(width);
+  static constexpr T mask = static_cast<T>(mask_unshifted << lsb);
 
   static constexpr T encode(T v) {
-    return static_cast<T>((v & mask_unshifted) << LSB);
+    return static_cast<T>((v & mask_unshifted) << lsb);
   }
 
   static constexpr T insert(T orig, T v) {
@@ -321,7 +322,7 @@ public:
   }
 
   [[nodiscard]] static constexpr T extract(T r) {
-    return static_cast<T>((r & mask) >> LSB);
+    return static_cast<T>((r & mask) >> lsb);
   }
 };
 """
@@ -381,10 +382,9 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         w.line("public:")
         w.indent()
 
-        w.line(
-            f"static inline constexpr unsigned width_bits = {reg['width_bits']};")
-        w.line("static inline constexpr bool readable = false;")
-        w.line("static inline constexpr bool writable = true;")
+        w.line(f"static constexpr unsigned width_bits = {reg['width_bits']};")
+        w.line("static constexpr bool readable = false;")
+        w.line("static constexpr bool writable = true;")
         w.line()
 
         w.line(f"enum class flags : {tname} {{")
@@ -413,7 +413,7 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         w.line()
 
         # Public typed entrypoint delegates to private raw writer
-        w.line("static inline void write_mask(flags flags) {")
+        w.line("static void write_mask(flags flags) {")
         w.indent()
         w.line(f"write_mask(static_cast<{tname}>(flags));")
         w.outdent()
@@ -426,10 +426,10 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         w.indent()
 
         w.line(
-            f"static inline constexpr {tname} imm_all_mask = static_cast<{tname}>({imm_all});")
+            f"static constexpr {tname} imm_all_mask = static_cast<{tname}>({imm_all});")
         w.line()
 
-        w.line(f"static inline void write_mask({tname} mask) {{")
+        w.line(f"static void write_mask({tname} mask) {{")
         w.indent()
         w.line(
             f"const {tname} imm = static_cast<{tname}>(mask & imm_all_mask);")
@@ -460,12 +460,11 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
     # Public API:
     w.line("public:")
     w.indent()
+    w.line(f"static constexpr unsigned width_bits = {reg['width_bits']};")
     w.line(
-        f"static inline constexpr unsigned width_bits = {reg['width_bits']};")
+        f"static constexpr bool readable = {'true' if can_read else 'false'};")
     w.line(
-        f"static inline constexpr bool readable = {'true' if can_read else 'false'};")
-    w.line(
-        f"static inline constexpr bool writable = {'true' if can_write else 'false'};")
+        f"static constexpr bool writable = {'true' if can_write else 'false'};")
     w.line()
 
     # Field aliases / wrappers
@@ -486,7 +485,8 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
             items = list(f["enums_map"].items())
             for i, (en, ev) in enumerate(items):
                 comma = "" if i + 1 == len(items) else ","
-                w.line(f"{sanitize_identifier(en)} = {to_hex_str(ev)}{comma}")
+                w.line(
+                    f"{sanitize_identifier(en)} = {to_hex_str(ev)}{comma}")
             w.outdent()
             w.line("};")
             w.outdent()
@@ -499,14 +499,14 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         if not fname:
             continue
         if f["readable"] and can_read:
-            w.line(f"[[nodiscard]] static inline {tname} read_{fname}() {{")
+            w.line(f"[[nodiscard]] static {tname} read_{fname}() {{")
             w.indent()
             w.line(f"return {fname}::extract(read());")
             w.outdent()
             w.line("}")
             w.line()
         if f["writable"] and can_read and can_write:
-            w.line(f"static inline void write_{fname}({tname} value) {{")
+            w.line(f"static void write_{fname}({tname} value) {{")
             w.indent()
             w.line(f"{tname} tmp = {fname}::insert(read(), value);")
             w.line("write(tmp);")
@@ -516,8 +516,7 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
 
     # Bulk helpers
     if can_read:
-        w.line(
-            f"[[nodiscard]] static inline {tname} read_bits({tname} mask) {{")
+        w.line(f"[[nodiscard]] static {tname} read_bits({tname} mask) {{")
         w.indent()
         w.line(f"return static_cast<{tname}>(read() & mask);")
         w.outdent()
@@ -525,7 +524,7 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         w.line()
 
     if can_read and can_write:
-        w.line(f"static inline void write_bits({tname} set_mask) {{")
+        w.line(f"static void write_bits({tname} set_mask) {{")
         w.indent()
         w.line(f"update_bits(set_mask, static_cast<{tname}>(0));")
         w.outdent()
@@ -533,7 +532,7 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         w.line()
 
         w.line(
-            f"static inline void update_bits({tname} set_mask, {tname} clear_mask) {{")
+            f"static void update_bits({tname} set_mask, {tname} clear_mask) {{")
         w.indent()
         w.line(f"{tname} v = read();")
         w.line(f"v = static_cast<{tname}>((v | set_mask) & ~clear_mask);")
@@ -549,7 +548,7 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
 
     # Read / write primitives
     if can_read:
-        w.line(f"[[nodiscard]] static inline {tname} read() {{")
+        w.line(f"[[nodiscard]] static {tname} read() {{")
         w.indent()
         emit_barrier(w, reg["policy"]["pre_read"])
         w.line("uint64_t tmp;")
@@ -561,7 +560,7 @@ def emit_register(w: CodeWriter, spec: Dict[str, Any], reg: Dict[str, Any]) -> N
         w.line()
 
     if can_write:
-        w.line(f"static inline void write({tname} value) {{")
+        w.line(f"static void write({tname} value) {{")
         w.indent()
         emit_barrier(w, reg["policy"]["pre_write"])
         w.line("uint64_t tmp = static_cast<uint64_t>(value);")
@@ -597,7 +596,7 @@ def main(argv: List[str]) -> int:
     out_path = Path(args.output)
 
     try:
-        data = spec_path.read_text(encoding="utf-8");
+        data = spec_path.read_text(encoding="utf-8")
         if not data.strip():
             out_path.write_text("", encoding="utf-8", newline="\n")
             return 0
